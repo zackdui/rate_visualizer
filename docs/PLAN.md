@@ -8,7 +8,17 @@
 | 2–3. Full TX run | Done (index 2026-08-20). All 36 files OK in 2,126 s with 4 workers, 12.1 GB streamed, max peak RAM 1.3 GB per worker, output 100 MB |
 | 3b. Profile | Built and tested. `profile.txt` for the full TX run: 0 unfinished files |
 | 4. Build DuckDB | Built and tested. `rates.duckdb` 2.5 GB in 823 s: rates_npi 35,397,412; rates_npi_dedup 16,898,337; capitation_npi 36; rates without a group 0 |
-| 5, trace | Not built yet |
+| 5. NPPES | Built and tested. Auto-picked `NPPES_Data_Dissemination_September_2026_V2.zip` (1.16 GB; its 11.7 GB CSV is streamed from the zip) and `nucc_taxonomy_261.csv`. 145 s: 263,521 of 263,524 NPIs found (3 not in NPPES), 989 deactivated, 184 without a specialty |
+| trace | Not built yet |
+
+**NPPES findings:** 224,755 individuals and 38,582 organisations, all with exactly one primary taxonomy (`switch_Y`).
+The 184 without a specialty list no taxonomy at all (rule `none`), so no `ambiguous` cases occurred. Practice state:
+214,242 TX, then CA 4,904, FL 4,425, NY 2,694. Top specialties: Nurse Practitioner 35,663, Counselor 26,254,
+Internal Medicine 23,704.
+**View performance lesson:** the TIN-name join first used `ON t.tin_type = 'npi' AND tn.npi = t.tin_value`, which
+stopped DuckDB from using a hash join (over 10 minutes). It now joins on `tn.npi = t.tin_value` and applies `tin_type`
+in `SELECT`: 0.27 s. NUCC's site uses an SSL.com 2022 root the system `curl` doesn't trust; Python `requests`
+(certifi) verifies it fine, so the code uses `requests`.
 
 **Profile findings (full TX):** every price is `ffs` and `outpatient`, and none has a `billing_code_modifier`. The
 7,651 prices with no `service_code` are all institutional (the CMS schema only requires it for professional).

@@ -2,7 +2,7 @@
 import argparse, concurrent.futures, http.client, os, sys, time
 from collections import Counter
 import ijson, pyarrow.parquet as pq, requests, urllib3
-from . import build_db, config, extract, index, io, profile
+from . import build_db, config, extract, index, io, nppes, profile
 
 
 def cmd_index(cfg, args):
@@ -136,7 +136,18 @@ def cmd_build_db(cfg, args):
         print("WARNING: some rates reference provider groups that are missing (see anomalies)")
 
 
-COMMANDS = {"index": cmd_index, "extract": cmd_extract, "profile": cmd_profile, "build-db": cmd_build_db}
+def cmd_nppes(cfg, args):
+    t0 = time.time()
+    meta, anomalies = nppes.run(cfg, args.index_date or latest_index_date(cfg), nppes_zip=args.nppes_zip,
+                                nucc_csv=args.nucc_csv, log=lambda msg: print(msg, flush=True))
+    print(f"nppes finished in {time.time() - t0:,.0f}s: {meta['n_found']:,} of {meta['n_npis_requested']:,} NPIs "
+          f"found ({meta['n_not_found']:,} not in NPPES), {meta['n_deactivated']:,} deactivated, "
+          f"{meta['n_without_specialty']:,} without a specialty")
+    print(f"  anomalies: {dict(Counter(a['type'] for a in anomalies))}")
+
+
+COMMANDS = {"index": cmd_index, "extract": cmd_extract, "profile": cmd_profile, "build-db": cmd_build_db,
+            "nppes": cmd_nppes}
 
 
 def main(argv=None):
@@ -146,7 +157,9 @@ def main(argv=None):
     for name in COMMANDS:
         parsers[name] = p = sub.add_parser(name)
         p.add_argument("--config", default="configs/tx.toml")
-    for name in ("extract", "profile", "build-db"):
+    parsers["nppes"].add_argument("--nppes-zip", help="use a local NPPES zip instead of finding/downloading it")
+    parsers["nppes"].add_argument("--nucc-csv", help="use a local NUCC taxonomy CSV instead of finding/downloading it")
+    for name in ("extract", "profile", "build-db", "nppes"):
         parsers[name].add_argument("--index-date", help="which index run to use (default: latest under data/<state>/)")
     e = parsers["extract"]
     pick = e.add_mutually_exclusive_group()

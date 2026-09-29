@@ -13,6 +13,7 @@
 """
 import datetime, os, shutil, time
 import duckdb
+from . import nppes
 from .extract import dir_size, git_state
 from .io import run_dir
 from .profile import EXTRACT_TABLES, done_dirs, table_paths
@@ -151,6 +152,8 @@ def build(cfg, index_date, db_name="rates.duckdb", log=lambda msg: None):
             _check_storage(cfg, limit, f"after rates_npi_dedup for {code}")
         con.execute(CAPITATION_NPI_SQL.replace("{state}", cfg.state))
         stage("capitation_npi")
+        if nppes.load_into_db(con, os.path.join(base, "nppes")):  # keep step 5 results across rebuilds
+            stage("nppes tables + named views")
         counts = {t: con.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in
                   ("rates", "provider_groups", "rates_npi", "rates_npi_dedup", "capitation", "capitation_npi",
                    "anomalies", "file_meta")}

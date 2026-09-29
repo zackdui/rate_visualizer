@@ -21,7 +21,10 @@ data/<state>/<index_date>/                 e.g. data/TX/2026-08-20/  (index_date
     _SUCCESS                               empty; written last. No _SUCCESS = incomplete (it is redone)
   files/<file_id>.tmp/                     only exists while a file is being parsed (or after a crash)
   profile.txt                              step 3b report
-  rates.duckdb                             step 4 database
+  rates.duckdb                             step 4 database (+ step 5 tables and views)
+  nppes/                                   step 5
+    nppes.parquet, taxonomy.parquet, nppes_meta.parquet, anomalies.parquet
+data/nppes/                                downloaded NPPES zip + NUCC CSV (shared by all runs)
 ```
 
 **Values are copied verbatim.** Strings are never cleaned or renamed. Numbers are stored as text where exactness
@@ -254,6 +257,47 @@ result is the same as one big `GROUP BY`.) Extra columns:
 | is_in_state_any / is_in_state_all | whether any / all merged rows came from in-state files |
 | n_sources | how many `rates_npi` rows were merged |
 | sources | list of {file_id, network_name, provider_group_id, i, j, k, r, m, n, p, service_code, billing_code_modifier (original order)}: every source, traceable. File descriptions come from `index_files` via `file_id` |
+
+---
+
+## Step 5: `nppes/` and the `*_named` views
+`rate-visualizer nppes` finds and downloads (into `data/nppes/`) the newest monthly full NPPES file and the newest
+NUCC taxonomy CSV. It streams the NPPES CSV straight out of the zip and keeps only NPIs that appear in the database:
+`provider_groups.npi`, plus `tin_value` where `tin_type = 'npi'`. It writes `data/<state>/<index_date>/nppes/*.parquet`
+and loads them into `rates.duckdb`. `build-db` reloads them automatically, so a rebuild keeps them.
+
+### nppes (table; one row per NPI found)
+| Column | Meaning |
+|---|---|
+| npi | the NPI |
+| entity_type_code, entity_type | `1` = `individual`, `2` = `organization` |
+| provider_name | organisation name for type 2; "first middle last suffix" for type 1 |
+| org_name, last_name, first_name, middle_name, name_prefix, name_suffix, credential | verbatim NPPES fields |
+| mailing_address_1/2, mailing_city, mailing_state, mailing_zip, mailing_phone | **mailing** address (often a billing office) |
+| practice_address_1/2, practice_city, practice_state, practice_zip, practice_phone | **primary practice location** (where care is given; use for maps) |
+| enumeration_date, last_update_date, deactivation_date, reactivation_date | NPPES dates (text as published) |
+| taxonomy_codes | all listed taxonomy codes (up to 15) |
+| primary_taxonomy_code | chosen by a fixed rule: the one code with primary switch `Y`; otherwise, if exactly one code is listed, that one; otherwise null |
+| primary_taxonomy_rule | which case applied: `switch_Y`, `only_code`, `ambiguous` (null + anomaly) or `none` |
+| specialty_grouping, specialty_classification, specialty_specialization, specialty_display_name | NUCC description of the primary taxonomy (e.g. `Allopathic & Osteopathic Physicians` / `Psychiatry & Neurology` / `Psychiatry`) |
+
+### taxonomy (table)
+The whole NUCC code set used: `code, grouping, classification, specialization, display_name, section`.
+
+### nppes_meta (table, 1 row)
+Which files were used and what happened: `nppes_url, nppes_file, nppes_sha256, nppes_bytes, csv_member, n_csv_rows,
+nucc_url, nucc_file, nucc_version, nucc_sha256, n_npis_requested, n_found, n_not_found, n_deactivated,
+n_without_specialty, started_at, finished_at`.
+
+### nppes_anomalies (table)
+`step, npi, type, detail`. Types: `npi_not_in_nppes`, `ambiguous_primary_taxonomy`, `taxonomy_code_not_in_nucc`,
+`wrong_field_count`.
+
+### Views: rates_npi_named, rates_npi_dedup_named, capitation_npi_named
+The base table (all its columns) `LEFT JOIN nppes` on `npi`, adding `entity_type_code, entity_type, provider_name,
+credential, primary_taxonomy_code, specialty_*, practice_*, mailing_*, deactivation_date`, plus `in_nppes` (false
+when the NPI wasn't found) and `tin_npi_provider_name` (the NPPES name of the TIN when `tin_type = 'npi'`). Row counts
+are identical to the base tables.
 
 ## Common joins
 ```sql

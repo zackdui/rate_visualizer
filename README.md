@@ -14,6 +14,7 @@ uv run rate-visualizer extract --config configs/tx.toml --file-id <file_id>   # 
 uv run rate-visualizer extract --config configs/tx.toml --in-state --workers 4 # steps 2-3: all 36 TX files
 uv run rate-visualizer profile                                                # step 3b: report -> profile.txt
 uv run rate-visualizer build-db                                               # step 4: -> rates.duckdb
+uv run rate-visualizer nppes                                                  # step 5: names, specialty, addresses
 ```
 `extract` skips files that already finished (they have `_SUCCESS`); `--force` redoes them. `--local <path>` parses a
 local copy instead of streaming (matched to the index by file name). `--workers N` processes N files in parallel
@@ -43,7 +44,7 @@ per-worker share should leave headroom.
 | 2–3. Extract rates + provider groups per file | `extract` | built, tested |
 | 3b. Profile (which rate types appear) | `profile` | built, tested |
 | 4. Build DuckDB (one row per NPI, dedup) | `build-db` | built, tested |
-| 5. NPPES names / specialty / addresses | `nppes` | not built yet |
+| 5. NPPES names / specialty / addresses | `nppes` | built, tested |
 | Trace a row back to the raw JSON | `trace` | not built yet |
 
 ## Files in this repo
@@ -67,6 +68,9 @@ per-worker share should leave headroom.
   capitation across all finished files, and saves `profile.txt`.
 - `build_db.py`: step 4. Loads everything into `rates.duckdb` and builds `rates_npi` (one row per NPI),
   `rates_npi_dedup` and `capitation_npi`, within the memory and storage limits.
+- `nppes.py`: step 5. Finds the newest NPPES monthly file and NUCC taxonomy, streams the NPPES CSV out of the zip
+  for the NPIs in the database, picks each NPI's primary specialty by a fixed rule, and adds `nppes`, `taxonomy` and
+  the `*_named` views to `rates.duckdb`.
 - `__init__.py`: exposes `main` for the command-line entry point.
 
 **Tests `tests/`**
@@ -74,6 +78,8 @@ per-worker share should leave headroom.
 - `test_extract.py`: steps 2–3 on the real fixture, compared row by row with an independent `json.load`
   implementation; synthetic edge cases (key order, inline groups, undefined/remote references, unknown keys,
   non-CPT codes); SHA-256 and re-run behaviour; capitation; memory and storage limits.
+- `test_nppes.py`: step 5. File discovery rules, the primary-taxonomy rule, and the full step on the fixture
+  database with a small hand-built NPPES zip and NUCC CSV (including survival across a rebuild).
 - `test_build.py`: steps 3b and 4. Profile and build on the fixtures (expected counts), dedup across files and
   networks, and the storage limit.
 - `fixtures/2026-08-17_…_Blue-Essentials-295430_in-network-rates.json.gz`: a real 1.6 MB BCBSTX file that contains
