@@ -317,5 +317,14 @@ A row in `rates` joined to `provider_groups` gives two paths into the source fil
 - the price: `in_network[i].negotiated_rates[j].negotiated_prices[k]` (group reference: `…negotiated_rates[j].provider_references[r]`)
 - the NPI: `provider_references[m].provider_groups[n].npi[p]`
 
-Re-download the file, check its SHA-256 equals `file_meta.sha256`, and read those paths. (A `trace` command will
-automate this. BCBSTX replaces files monthly, so this only works while the month's file is online.)
+`rate-visualizer trace` does this automatically:
+```
+uv run rate-visualizer trace --npi 1093225138 --code 90837 --limit 5     # verify rates_npi rows for an NPI
+uv run rate-visualizer trace --file-id bb0105a97327 --path "in_network[6083].negotiated_rates[2]"   # any raw path
+```
+It re-streams the file from its URL (or `--local <path>`), only builds the parts it needs, and checks the SHA-256
+against `file_meta.sha256`. With `--npi`, it also checks that the raw `negotiated_rate` text, `billing_code`, both
+`provider_group_id`s and the NPI equal the database values. It exits non-zero on any mismatch. With `--npi`, rows
+from the smallest files come first (an NPI can appear in 2 GB files that take several minutes to stream). Add
+`--file-id` to pick one file; with `--local`, rows are limited to the file matched by name. BCBSTX replaces files
+monthly, so tracing from the URL only works while the month's file is online.

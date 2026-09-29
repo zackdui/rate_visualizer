@@ -2,7 +2,7 @@
 import argparse, concurrent.futures, http.client, os, sys, time
 from collections import Counter
 import ijson, pyarrow.parquet as pq, requests, urllib3
-from . import build_db, config, extract, index, io, nppes, profile
+from . import build_db, config, extract, index, io, nppes, profile, trace
 
 
 def cmd_index(cfg, args):
@@ -146,8 +146,27 @@ def cmd_nppes(cfg, args):
     print(f"  anomalies: {dict(Counter(a['type'] for a in anomalies))}")
 
 
+def cmd_trace(cfg, args):
+    index_date = args.index_date or latest_index_date(cfg)
+    if args.npi:
+        results = trace.trace_rows(cfg, index_date, args.npi, code=args.code, limit=args.limit, local=args.local,
+                                   file_id=args.file_id)
+        bad = [r for r, checks, same in results if not same or not all(checks.values())]
+        print(f"\n{len(results)} row(s) traced: {len(results) - len(bad)} verified, {len(bad)} with problems")
+        if bad:
+            sys.exit(1)
+        return
+    if not (args.file_id and args.path):
+        sys.exit("give --npi NPI [--code CODE], or --file-id ID with one or more --path PATH")
+    found, same = trace.trace_paths(cfg, index_date, args.file_id, args.path, local=args.local)
+    for p in args.path:
+        print(f"\n{p}\n{trace._show(found[p])}")
+    if not same:
+        sys.exit(1)
+
+
 COMMANDS = {"index": cmd_index, "extract": cmd_extract, "profile": cmd_profile, "build-db": cmd_build_db,
-            "nppes": cmd_nppes}
+            "nppes": cmd_nppes, "trace": cmd_trace}
 
 
 def main(argv=None):
@@ -159,7 +178,14 @@ def main(argv=None):
         p.add_argument("--config", default="configs/tx.toml")
     parsers["nppes"].add_argument("--nppes-zip", help="use a local NPPES zip instead of finding/downloading it")
     parsers["nppes"].add_argument("--nucc-csv", help="use a local NUCC taxonomy CSV instead of finding/downloading it")
-    for name in ("extract", "profile", "build-db", "nppes"):
+    t = parsers["trace"]
+    t.add_argument("--npi", help="trace rates_npi rows for this NPI")
+    t.add_argument("--code", help="with --npi: only this billing code")
+    t.add_argument("--limit", type=int, default=5, help="with --npi: at most this many rows (default 5)")
+    t.add_argument("--file-id", help="trace raw paths in this file; with --npi, only rows from this file")
+    t.add_argument("--path", action="append", help="JSON path, e.g. in_network[3].negotiated_rates[0]; repeatable")
+    t.add_argument("--local", help="read a local copy instead of the file's URL")
+    for name in ("extract", "profile", "build-db", "nppes", "trace"):
         parsers[name].add_argument("--index-date", help="which index run to use (default: latest under data/<state>/)")
     e = parsers["extract"]
     pick = e.add_mutually_exclusive_group()

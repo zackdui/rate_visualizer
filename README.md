@@ -15,6 +15,7 @@ uv run rate-visualizer extract --config configs/tx.toml --in-state --workers 4 #
 uv run rate-visualizer profile                                                # step 3b: report -> profile.txt
 uv run rate-visualizer build-db                                               # step 4: -> rates.duckdb
 uv run rate-visualizer nppes                                                  # step 5: names, specialty, addresses
+uv run rate-visualizer trace --npi <NPI> --code 90837                         # verify rows against the raw file
 ```
 `extract` skips files that already finished (they have `_SUCCESS`); `--force` redoes them. `--local <path>` parses a
 local copy instead of streaming (matched to the index by file name). `--workers N` processes N files in parallel
@@ -45,7 +46,7 @@ per-worker share should leave headroom.
 | 3b. Profile (which rate types appear) | `profile` | built, tested |
 | 4. Build DuckDB (one row per NPI, dedup) | `build-db` | built, tested |
 | 5. NPPES names / specialty / addresses | `nppes` | built, tested |
-| Trace a row back to the raw JSON | `trace` | not built yet |
+| Trace a row back to the raw JSON | `trace` | built, tested |
 
 ## Files in this repo
 **Configuration**
@@ -59,7 +60,8 @@ per-worker share should leave headroom.
 - `io.py`: shared file access: `download()`, `open_local()`, `open_source()` (streams a URL or local file, gunzips,
   and computes the SHA-256 of the bytes), `file_key()` (URL without `?signature`), and Parquet writing.
 - `jsonstream.py`: walks a huge top-level JSON object one piece at a time with ijson, whatever order the keys are in.
-  Numbers stay `Decimal`, so the exact text is preserved.
+  Numbers stay `Decimal`, so the exact text is preserved. It can skip list items without building them (used by
+  `trace`).
 - `index.py`: step 1. Parses the index into `index_meta`, `index_files`, `index_plans`, `plan_files`, `anomalies`.
 - `extract.py`: steps 2–3. Parses one in-network file in a single pass into `rates` (per-visit prices for the
   configured codes), `capitation` + `capitation_covered_services` (fixed per-member payments and the codes they
@@ -71,6 +73,8 @@ per-worker share should leave headroom.
 - `nppes.py`: step 5. Finds the newest NPPES monthly file and NUCC taxonomy, streams the NPPES CSV out of the zip
   for the NPIs in the database, picks each NPI's primary specialty by a fixed rule, and adds `nppes`, `taxonomy` and
   the `*_named` views to `rates.duckdb`.
+- `trace.py`: re-streams a source file and prints the raw JSON at given paths, or verifies `rates_npi` rows for an
+  NPI against the raw file (values and SHA-256).
 - `__init__.py`: exposes `main` for the command-line entry point.
 
 **Tests `tests/`**
@@ -80,6 +84,8 @@ per-worker share should leave headroom.
   non-CPT codes); SHA-256 and re-run behaviour; capitation; memory and storage limits.
 - `test_nppes.py`: step 5. File discovery rules, the primary-taxonomy rule, and the full step on the fixture
   database with a small hand-built NPPES zip and NUCC CSV (including survival across a rebuild).
+- `test_trace.py`: path parsing, skipping unneeded items, raw-path lookup with SHA-256 check, row verification,
+  and detection of a changed file.
 - `test_build.py`: steps 3b and 4. Profile and build on the fixtures (expected counts), dedup across files and
   networks, and the storage limit.
 - `fixtures/2026-08-17_…_Blue-Essentials-295430_in-network-rates.json.gz`: a real 1.6 MB BCBSTX file that contains

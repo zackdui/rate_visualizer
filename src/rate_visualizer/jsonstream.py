@@ -29,7 +29,22 @@ def _build(first_event, first_value, events):
     raise ValueError("JSON ended inside a value")
 
 
-def iter_top_level(fh, list_keys):
+def _skip(first_event, events):
+    """Consume one value without building it."""
+    if first_event not in _OPEN:
+        return
+    depth = 1
+    for _, event, _ in events:
+        if event in _OPEN:
+            depth += 1
+        elif event in _CLOSE:
+            depth -= 1
+            if depth == 0:
+                return
+
+
+def iter_top_level(fh, list_keys, keep=None):
+    """keep(key, index) -> bool, optional: list items for which it returns False are skipped (not built/yielded)."""
     events = ijson.parse(fh)  # numbers come back as Decimal, so exact text is preserved
     key, index = None, 0
     for prefix, event, value in events:
@@ -41,7 +56,10 @@ def iter_top_level(fh, list_keys):
         elif prefix == key and key in list_keys and event == "end_array":
             continue
         elif prefix == f"{key}.item" and key in list_keys:
-            yield "item", key, index, _build(event, value, events)
+            if keep is None or keep(key, index):
+                yield "item", key, index, _build(event, value, events)
+            else:
+                _skip(event, events)
             index += 1
         elif prefix == key:
             yield "value", key, None, _build(event, value, events)

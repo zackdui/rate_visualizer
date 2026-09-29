@@ -9,7 +9,10 @@
 | 3b. Profile | Built and tested. `profile.txt` for the full TX run: 0 unfinished files |
 | 4. Build DuckDB | Built and tested. `rates.duckdb` 2.5 GB in 823 s: rates_npi 35,397,412; rates_npi_dedup 16,898,337; capitation_npi 36; rates without a group 0 |
 | 5. NPPES | Built and tested. Auto-picked `NPPES_Data_Dissemination_September_2026_V2.zip` (1.16 GB; its 11.7 GB CSV is streamed from the zip) and `nucc_taxonomy_261.csv`. 145 s: 263,521 of 263,524 NPIs found (3 not in NPPES), 989 deactivated, 184 without a specialty |
-| trace | Not built yet |
+| trace | Built and tested. From the live URL: the Blue-Essentials-295430 rows verified in 2 s (SHA-256 matches; rate, code, both group IDs and NPI all OK). MyBlue HMO rows verified from a local copy in 54 s. `--npi` traces the smallest files first; `--local` limits rows to the file matched by name, and `--file-id` picks a file |
+
+**All steps in this plan are built.** Only non-matching items are skipped by `trace` (not built), so a file is traced
+at about the speed of downloading it.
 
 **NPPES findings:** 224,755 individuals and 38,582 organisations, all with exactly one primary taxonomy (`switch_Y`).
 The 184 without a specialty list no taxonomy at all (rule `none`), so no `ambiguous` cases occurred. Practice state:
