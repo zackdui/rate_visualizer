@@ -1,5 +1,5 @@
 """Command line: rate-visualizer <step> --config configs/tx.toml"""
-import argparse, concurrent.futures, http.client, os, sys, time
+import argparse, concurrent.futures, http.client, json, os, sys, time
 from collections import Counter
 import ijson, pyarrow.parquet as pq, requests, urllib3
 from . import build_db, config, extract, index, io, nppes, profile, trace
@@ -165,8 +165,78 @@ def cmd_trace(cfg, args):
         sys.exit(1)
 
 
+def cmd_build_site(cfg, args):
+    from .sitebuild import build_site
+    t0 = time.time()
+    path, counts = build_site.build(cfg, args.index_date or latest_index_date(cfg), force=args.force,
+                                    log=lambda m: print(m, flush=True))
+    print(f"built {path} in {time.time() - t0:,.0f}s ({counts.pop('site_mb'):,.1f} MB)")
+    for name, n in counts.items():
+        print(f"  {name:16s} {n:>14,}")
+
+
+def cmd_publish_site(cfg, args):
+    from .backend.settings import Settings
+    from .backend.storage import LocalStore
+    from .sitebuild import publish
+    settings = Settings.from_env()
+    store = LocalStore(args.local_store) if args.local_store else None
+    m = publish.publish(cfg, args.index_date or latest_index_date(cfg), settings, store=store,
+                        deploy=not args.no_deploy, dry_run=args.dry_run)
+    print(json.dumps(m, indent=2))
+
+
+def cmd_check_backend(cfg, args):
+    """Open the site database like the website does and time every backend call."""
+    from .backend import Backend, Filters
+    path = args.site_db or os.path.join(io.run_dir(cfg, args.index_date or latest_index_date(cfg)), "site.duckdb")
+    b = Backend(path, memory_limit=args.memory_limit, threads=args.threads)
+    f = Filters()
+    code = "90837"
+    npi = b.rate_explorer(f.replace(codes=(code,)), page_size=1)["rows"][0]["npi"]
+    tin = b.rate_explorer(f.replace(codes=(code,)), page_size=1, sort_by="tin")["rows"][0]["tin"]
+    calls = [
+        ("filter_options", lambda: b.filter_options()),
+        ("code_summary", lambda: b.code_summary(f)),
+        ("code_summary by provider_type", lambda: b.code_summary(f, "provider_type")),
+        ("code_summary by network", lambda: b.code_summary(f, "network")),
+        ("code_summary counting=npi", lambda: b.code_summary(f.replace(counting_unit="npi"))),
+        ("histogram 90837", lambda: b.histogram(f, code)),
+        ("benchmarks", lambda: b.benchmarks(f)),
+        ("rate_explorer page 1", lambda: b.rate_explorer(f)),
+        ("rate_explorer search 'smith'", lambda: b.rate_explorer(f.replace(search="smith"))),
+        ("rate_explorer summarize tin_code", lambda: b.rate_explorer(f, summarize_by="tin_code")),
+        ("percentage_rates", lambda: b.percentage_rates(f)),
+        ("map_points 90837", lambda: b.map_points(f, code)),
+        ("rate_type_composition", lambda: b.rate_type_composition(f)),
+        ("provider_profile", lambda: b.provider_profile(npi, f)),
+        ("billing_entity_profile", lambda: b.billing_entity_profile(tin, f)),
+        ("provider_list", lambda: b.provider_list(f)),
+        ("entity_list", lambda: b.entity_list(f)),
+        ("data_quality", lambda: b.data_quality()),
+        ("dq_rows zero_rate", lambda: b.dq_rows("zero_rate")),
+        ("source_rows", lambda: b.source_rows(b.rate_explorer(f, page_size=1)["rows"][0]["rate_id"])),
+        ("suggest provider 'smi'", lambda: b.suggest("provider", "smi")),
+        ("filters: Houston psychiatrists 90837", lambda: b.code_summary(
+            f.replace(codes=(code,), cities=("HOUSTON",), provider_types=("Psychiatrist",)))),
+        ("filters: Headway benchmarks", lambda: b.benchmarks(f.replace(tag_names=("Headway",)))),
+    ]
+    print(f"{path} (memory {args.memory_limit}, threads {args.threads or 'default'})")
+    slow = []
+    for name, fn in calls:
+        t = time.time()
+        result = fn()
+        secs = time.time() - t
+        size = len(result.get("rows", result.get("points", []))) if isinstance(result, dict) else len(result)
+        print(f"  {name:38s} {secs:6.2f}s  {size:>6} rows")
+        if secs > args.slow:
+            slow.append(name)
+    print(f"{len(calls)} calls; slower than {args.slow}s: {slow or 'none'}")
+
+
 COMMANDS = {"index": cmd_index, "extract": cmd_extract, "profile": cmd_profile, "build-db": cmd_build_db,
-            "nppes": cmd_nppes, "trace": cmd_trace}
+            "nppes": cmd_nppes, "trace": cmd_trace, "build-site": cmd_build_site, "publish-site": cmd_publish_site,
+            "check-backend": cmd_check_backend}
 
 
 def main(argv=None):
@@ -185,7 +255,17 @@ def main(argv=None):
     t.add_argument("--file-id", help="trace raw paths in this file; with --npi, only rows from this file")
     t.add_argument("--path", action="append", help="JSON path, e.g. in_network[3].negotiated_rates[0]; repeatable")
     t.add_argument("--local", help="read a local copy instead of the file's URL")
-    for name in ("extract", "profile", "build-db", "nppes", "trace"):
+    parsers["build-site"].add_argument("--force", action="store_true", help="build even if sanity checks fail")
+    ps = parsers["publish-site"]
+    ps.add_argument("--dry-run", action="store_true", help="show what would be uploaded; touch nothing")
+    ps.add_argument("--no-deploy", action="store_true", help="don't call the Render deploy hook")
+    ps.add_argument("--local-store", help="publish into this folder instead of R2 (testing)")
+    cb = parsers["check-backend"]
+    cb.add_argument("--site-db", help="site.duckdb to check (default: the latest run's)")
+    cb.add_argument("--memory-limit", default="1GB")
+    cb.add_argument("--threads", type=int, default=1, help="DuckDB threads (Render Standard has 1 CPU)")
+    cb.add_argument("--slow", type=float, default=0.5, help="report calls slower than this many seconds")
+    for name in ("extract", "profile", "build-db", "nppes", "trace", "build-site", "publish-site", "check-backend"):
         parsers[name].add_argument("--index-date", help="which index run to use (default: latest under data/<state>/)")
     e = parsers["extract"]
     pick = e.add_mutually_exclusive_group()
