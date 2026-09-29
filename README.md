@@ -16,7 +16,12 @@ uv run rate-visualizer profile                                                # 
 uv run rate-visualizer build-db                                               # step 4: -> rates.duckdb
 uv run rate-visualizer nppes                                                  # step 5: names, specialty, addresses
 uv run rate-visualizer trace --npi <NPI> --code 90837                         # verify rows against the raw file
+uv run rate-visualizer build-site                                             # site.duckdb for the website
+uv run rate-visualizer check-backend                                          # time every backend call
+uv run rate-visualizer publish-site                                           # upload to R2 + restart Render
+uv run rate-visualizer site                                                   # run the website locally (port 8080)
 ```
+To run the website locally without R2, put `SITE_DB_PATH=data/TX/2026-08-20/site.duckdb` in `.env`.
 `extract` skips files that already finished (they have `_SUCCESS`); `--force` redoes them. `--local <path>` parses a
 local copy instead of streaming (matched to the index by file name). `--workers N` processes N files in parallel
 (a 475 MB file took about 4 minutes and 576 MB of RAM on one worker).
@@ -47,9 +52,15 @@ per-worker share should leave headroom.
 | 4. Build DuckDB (one row per NPI, dedup) | `build-db` | built, tested |
 | 5. NPPES names / specialty / addresses | `nppes` | built, tested |
 | Trace a row back to the raw JSON | `trace` | built, tested |
+| Site database for the website | `build-site` | built, tested |
+| Upload to Cloudflare R2 + restart Render | `publish-site` | built, tested (against a local folder; needs R2 keys for real) |
+| Website backend (all queries, filters, loader) | `backend` package, `check-backend` | built, tested |
+| Website frontend (NiceGUI page) | `site` | built, tested |
 
 ## Files in this repo
 **Configuration**
+- `.env.example`: template for the secrets file `.env` (git-ignored).
+- `configs/entity_tags_tx.csv`: platform and health-system tags per TIN.
 - `configs/tx.toml`: per-state settings: index URL/path, in-state filename marker, the billing codes to extract,
   code type, scope (`in_state`/`all`), output folder, retries. Copy it for another state or payer.
 
@@ -77,6 +88,32 @@ per-worker share should leave headroom.
   NPI against the raw file (values and SHA-256).
 - `__init__.py`: exposes `main` for the command-line entry point.
 
+**Website data, laptop side: `src/rate_visualizer/sitebuild/`**
+- `build_site.py`: `build-site`. Turns `rates.duckdb` + `configs/entity_tags_tx.csv` + map data into
+  `site.duckdb` (rates with provider type, location, tags and ghost-rule `scope_flag`; providers with map points;
+  TINs with display names; sources; data-quality tables), then checks it against last month.
+- `geo.py`: downloads and loads the Census ZCTA gazetteer and HRSA ZIP-to-ZCTA crosswalk.
+- `publish.py`: `publish-site`. Uploads `site.duckdb` to R2, writes `latest.json` last, keeps the newest months,
+  calls the Render deploy hook.
+
+**Website frontend: `src/rate_visualizer/frontend/`** (imports only `rate_visualizer.backend`)
+- `app.py`: startup (loads the data in the background), `/healthz`, the page (sticky header, nav, snapshot selector,
+  dark mode) and the `site` command.
+- `state.py`: each visitor's filters, pinned benchmark entities, debounced refresh, drill-down and navigation.
+- `filterbar.py`: the global filter bar (type-to-search multi-selects, search, toggles, counting unit).
+- `theme.py`: teal accent, Inter font, light/dark CSS, number formatting.
+- `sections/`: `summary.py` (Code Summary + histograms, Benchmarks), `tables.py` (Rate Explorer, Percentage Rates),
+  `map_view.py` (Map), `composition.py` (Rate Type Composition), `profiles.py` (Provider and Billing Entity
+  profiles), `quality.py` (Data Quality).
+
+**Website backend: `src/rate_visualizer/backend/`** (the only package the frontend may import; see
+[docs/backend_api.md](docs/backend_api.md))
+- `schema.py`: shared contract: table names, provider-type and ghost-rule SQL, labels for codes and places of service.
+- `filters.py`: `Filters`, every filter and toggle as one immutable object that renders parameterised SQL.
+- `queries.py`: `Backend`, one method per page section; returns plain data; cached.
+- `settings.py`, `storage.py`, `loader.py`: environment variables / `.env`, R2 or local-folder storage, and the
+  startup download with SHA-256 check.
+
 **Tests `tests/`**
 - `test_index.py`: step 1 on a synthetic index (edge cases) and the real 2026-08-20 BCBSTX index (expected counts).
 - `test_extract.py`: steps 2–3 on the real fixture, compared row by row with an independent `json.load`
@@ -86,6 +123,9 @@ per-worker share should leave headroom.
   database with a small hand-built NPPES zip and NUCC CSV (including survival across a rebuild).
 - `test_trace.py`: path parsing, skipping unneeded items, raw-path lookup with SHA-256 check, row verification,
   and detection of a changed file.
+- `test_site.py`: build-site, every backend method and filter (checked against direct SQL), CSV export, source
+  tracing, publish to a local folder, download verification, month retention, settings.
+- `test_frontend.py`: front/back boundary rules, and the real `site` command serving the page and `/healthz`.
 - `test_build.py`: steps 3b and 4. Profile and build on the fixtures (expected counts), dedup across files and
   networks, and the storage limit.
 - `fixtures/2026-08-17_…_Blue-Essentials-295430_in-network-rates.json.gz`: a real 1.6 MB BCBSTX file that contains
@@ -95,6 +135,9 @@ per-worker share should leave headroom.
 **Docs `docs/`**
 - `PLAN.md`: the approved algorithm, decisions and test expectations.
 - `OUTPUTS.md`: what every output file and column contains, and how to join and trace them.
+- `backend_api.md`: the website backend's API for the frontend.
+- `rates_tool_plan.md`, `rates_tool_hosting_plan.md`, `entity_matching.md`: the product plan, hosting/setup plan,
+  and how platforms and health systems were matched.
 
 **Generated, git-ignored**
 - `mrf_data/`: downloaded index file(s).

@@ -21,3 +21,11 @@ retries = 3
 # Safety limits. A file that would go over either limit is stopped and its partial output deleted.
 max_memory_gb = 13    # RAM for all extract workers together; each of N workers may use max_memory_gb / N
 max_storage_gb = 13   # everything stored under data_dir (outputs + temporary files)
+
+# Website data (build-site / publish-site). See docs/rates_tool_hosting_plan.md.
+entity_tags_path = "configs/entity_tags_tx.csv"
+geo_zcta_url = "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2025_Gazetteer/2025_Gaz_zcta_national.zip"
+geo_crosswalk_url = "https://data.hrsa.gov/DataDownload/GeoCareNavigator/ZIP%20Code%20to%20ZCTA%20Crosswalk.xlsx"
+r2_prefix = "sites/TX"
+site_months_kept = 3
+site_max_change = 0.30

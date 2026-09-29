@@ -4,3 +4,5 @@ __pycache__/
 .pytest_cache/
 data/
 mrf_data/
+.env
+.site_cache/
