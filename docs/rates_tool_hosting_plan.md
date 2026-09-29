@@ -42,7 +42,7 @@ and **MotherDuck** (not needed to serve the site; add it later only if people wa
       (new toggle in §6), because ghost rates turned out to be very common.
 - [x] Backend: **built** (`build-site`, `publish-site`, the `backend` package, `check-backend`). API in
       `docs/backend_api.md`.
-- [ ] Frontend (the NiceGUI page): **waiting for your go-ahead.**
+- [x] Frontend (the NiceGUI page): **built** (`rate-visualizer site`).
 
 ## 2. Architecture
 ```
@@ -286,7 +286,7 @@ at ~1 GB, filter options cached at startup.
 - [ ] Cloudflare R2 bucket + two tokens; `.env` filled in (you)
 - [ ] Render service created with the env vars in 10.2 (you)
 - [x] `build-site`, `publish-site`, backend package built and tested
-- [ ] Go-ahead to build the frontend (you)
+- [x] Frontend built and tested; site data published to R2 (2026-08-20 snapshot)
 
 ### 10.8 Measured backend speed (real data, `uv run rate-visualizer check-backend`)
 `site.duckdb` for the 2026-08-20 snapshot: **766 MB**, built in ~3.5 minutes. `rates` 16.9 M rows; `rates_core`

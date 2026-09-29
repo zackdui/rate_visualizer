@@ -247,6 +247,12 @@ def test_rate_explorer_paging_sorting_summaries(b):
     s = b.rate_explorer(f, summarize_by="tin_code")
     assert sum(r["n_rows"] for r in s["rows"]) == p1["total"]
     assert b.rate_explorer(f, summarize_by="code")["rows"][0]["n_rows"] == p1["total"]
+    from rate_visualizer.backend.queries import SUMMARIZE
+    for by in SUMMARIZE:  # every group-by option works and covers every row (network counts once per network)
+        res = b.rate_explorer(f, summarize_by=by, page_size=5000)
+        assert res["keys"][-1] == "billing_code" and res["rows"]
+        if by != "network_code":
+            assert sum(r["n_rows"] for r in res["rows"]) == p1["total"]
     with pytest.raises(ValueError):
         b.rate_explorer(f, sort_by="negotiated_rate; DROP TABLE rates")
 

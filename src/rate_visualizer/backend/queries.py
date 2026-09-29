@@ -24,11 +24,19 @@ EXPLORER_COLUMNS = {  # name -> SQL (whitelist: also the only allowed sort keys)
     "practice_city": "r.practice_city", "practice_state": "r.practice_state", "practice_zip5": "r.practice_zip5",
     "scope_flag": "r.scope_flag", "n_sources": "r.n_sources", "snapshot_date": "r.snapshot_date",
 }
+# Rate Explorer "Summarize / Group by": name -> (label, [(SQL expression, output column)]). "{tag}" is replaced by the
+# row's tag at the filter's confidence; "network" needs the rates unnested by network.
 SUMMARIZE = {
-    "code": ("r.billing_code",),
-    "tin_code": ("r.tin", "r.billing_code"),
-    "npi_code": ("r.npi", "r.billing_code"),
+    "code": ("Code", [("r.billing_code", "billing_code")]),
+    "tin_code": ("Billing entity (TIN) \u00d7 code", [("r.tin", "tin"), ("r.billing_code", "billing_code")]),
+    "npi_code": ("Provider (NPI) \u00d7 code", [("r.npi", "npi"), ("r.billing_code", "billing_code")]),
+    "network_code": ("Network \u00d7 code", [("r.network", "network"), ("r.billing_code", "billing_code")]),
+    "provider_type_code": ("Provider type \u00d7 code", [("r.provider_type_group", "provider_type_group"),
+                                                   ("r.billing_code", "billing_code")]),
+    "pos_group_code": ("Place of service \u00d7 code", [("r.pos_group", "pos_group"), ("r.billing_code", "billing_code")]),
+    "tag_code": ("Entity tag \u00d7 code", [("{tag}", "tag_name"), ("r.billing_code", "billing_code")]),
 }
+SUMMARIZE_LABELS = {k: v[0] for k, v in SUMMARIZE.items()}
 BREAKDOWNS = {None: None, "provider_type": "r.provider_type_group", "network": "network",
               "place_of_service": "r.pos_group", "tag": "tag"}
 DQ_KINDS = ("zero_rate", "invalid_npi", "not_in_nppes", "expired", "conflicts")
@@ -73,6 +81,12 @@ class Backend:
         self.benchmarks(f)
         self.rate_type_composition(f)
         self.rate_explorer(f)
+        self.percentage_rates(f)
+        for code in S.CODES:
+            self.histogram(f, code)
+        self.map_points(f, "90837", 2500)
+        self.provider_list(f)
+        self.entity_list(f)
 
     def close(self):
         self._con.close()
@@ -366,29 +380,36 @@ class Backend:
         where, params = f.where("r")
         return self._memo(key, lambda: self._select_rows(where, params, page, page_size, sort_by, sort_dir, f))
 
-    def _summarize(self, f, by, page, page_size, sort_dir):
+    def _group(self, f, by):
+        """(select list, group-by list, output columns, source table) for a SUMMARIZE option."""
         if by not in SUMMARIZE:
             raise ValueError(f"summarize_by must be one of {sorted(SUMMARIZE)}")
+        exprs = [(e.replace("{tag}", f.tag_expr("tag_name", "r")), c) for e, c in SUMMARIZE[by][1]]
+        needs_network = any(c == "network" for _, c in exprs)
+        select = ", ".join(f"{e} AS {c}" for e, c in exprs)
+        group = ", ".join(e for e, _ in exprs)
+        return select, group, [c for _, c in exprs], self._source(self._tbl(f), needs_network)
+
+    def _summarize(self, f, by, page, page_size, sort_dir):
         where, params = f.where("r")
-        keys = [k.split(".")[1] for k in SUMMARIZE[by]]
-        g = ", ".join(SUMMARIZE[by])
-        names = {"code": ("", ""),
-                 "tin_code": (f", t.display_name AS tin_name, {f.tag_expr('tag_name', 't')} AS tag_name",
+        select, group, keys, src = self._group(f, by)
+        names = {"tin_code": (f", t.display_name AS tin_name, {f.tag_expr('tag_name', 't')} AS tag_name",
                               f"LEFT JOIN {S.T_TINS} t ON t.tin = a.tin"),
                  "npi_code": (", p.provider_name, p.provider_type_group",
-                              f"LEFT JOIN {S.T_PROVIDERS} p ON p.npi = a.npi")}[by]
+                              f"LEFT JOIN {S.T_PROVIDERS} p ON p.npi = a.npi")}.get(by, ("", ""))
         direction = "DESC" if str(sort_dir).lower() == "desc" else "ASC"
         page, page_size = max(1, int(page)), max(1, min(int(page_size), 5000))
-        agg = f"""SELECT {g}, count(*) AS n_rows, count(DISTINCT r.npi) AS n_npis, count(DISTINCT r.tin) AS n_tins,
+        agg = f"""SELECT {select}, count(*) AS n_rows, count(DISTINCT r.npi) AS n_npis, count(DISTINCT r.tin) AS n_tins,
                          avg(r.negotiated_rate) AS avg_rate, median(r.negotiated_rate) AS median_rate,
                          min(r.negotiated_rate) AS min_rate, max(r.negotiated_rate) AS max_rate
-                  FROM {self._tbl(f)} r WHERE {where} GROUP BY {g}"""
+                  FROM {src} r WHERE {where} GROUP BY {group}"""
         total = self._rows(f"SELECT count(*) AS n FROM ({agg})", params)[0]["n"]
-        order = ", ".join(f"a.{k}" for k in keys)
+        order = ", ".join(f"a.{k} NULLS LAST" for k in keys)
         rows = self._rows(f"""SELECT a.*{names[0]} FROM (
-                SELECT * FROM ({agg}) ORDER BY avg_rate {direction}, {", ".join(keys)} LIMIT ? OFFSET ?) a {names[1]}
+                SELECT * FROM ({agg}) ORDER BY avg_rate {direction}, {", ".join(k + " NULLS LAST" for k in keys)}
+                LIMIT ? OFFSET ?) a {names[1]}
             ORDER BY a.avg_rate {direction}, {order}""", params + [page_size, (page - 1) * page_size])
-        return {"total": total, "page": page, "page_size": page_size, "summarize_by": by, "rows": rows}
+        return {"total": total, "page": page, "page_size": page_size, "summarize_by": by, "keys": keys, "rows": rows}
 
     def percentage_rates(self, f: Filters, page=1, page_size=200, sort_by="negotiated_rate", sort_dir="asc"):
         """Rate Explorer for percentage-of-billed-charges rows only, plus billed_charge / estimated_dollars."""
@@ -408,10 +429,10 @@ class Backend:
         if percentage:
             where += " AND r.rate_unit = 'percent_of_billed_charges'"
         if summarize_by:
-            g = ", ".join(SUMMARIZE[summarize_by])
-            sql = f"""SELECT {g}, count(*) AS n_rows, count(DISTINCT r.npi) AS n_npis, avg(r.negotiated_rate) AS avg_rate,
-                             median(r.negotiated_rate) AS median_rate FROM {self._tbl(f)} r WHERE {where} GROUP BY {g}
-                      ORDER BY {g}"""
+            select, group, keys, src = self._group(f, summarize_by)
+            sql = f"""SELECT {select}, count(*) AS n_rows, count(DISTINCT r.npi) AS n_npis, avg(r.negotiated_rate) AS avg_rate,
+                             median(r.negotiated_rate) AS median_rate FROM {src} r WHERE {where} GROUP BY {group}
+                      ORDER BY {", ".join(keys)}"""
         else:
             cols = ", ".join(f"{sql} AS {name}" for name, sql in EXPLORER_COLUMNS.items())
             sql = f"""SELECT {cols}, {f.tag_expr()} AS tag_name FROM {self._tbl(f)} r

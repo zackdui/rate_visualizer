@@ -19,7 +19,9 @@ uv run rate-visualizer trace --npi <NPI> --code 90837                         # 
 uv run rate-visualizer build-site                                             # site.duckdb for the website
 uv run rate-visualizer check-backend                                          # time every backend call
 uv run rate-visualizer publish-site                                           # upload to R2 + restart Render
+uv run rate-visualizer site                                                   # run the website locally (port 8080)
 ```
+To run the website locally without R2, put `SITE_DB_PATH=data/TX/2026-08-20/site.duckdb` in `.env`.
 `extract` skips files that already finished (they have `_SUCCESS`); `--force` redoes them. `--local <path>` parses a
 local copy instead of streaming (matched to the index by file name). `--workers N` processes N files in parallel
 (a 475 MB file took about 4 minutes and 576 MB of RAM on one worker).
@@ -53,7 +55,7 @@ per-worker share should leave headroom.
 | Site database for the website | `build-site` | built, tested |
 | Upload to Cloudflare R2 + restart Render | `publish-site` | built, tested (against a local folder; needs R2 keys for real) |
 | Website backend (all queries, filters, loader) | `backend` package, `check-backend` | built, tested |
-| Website frontend (NiceGUI page) | – | not built yet |
+| Website frontend (NiceGUI page) | `site` | built, tested |
 
 ## Files in this repo
 **Configuration**
@@ -94,6 +96,16 @@ per-worker share should leave headroom.
 - `publish.py`: `publish-site`. Uploads `site.duckdb` to R2, writes `latest.json` last, keeps the newest months,
   calls the Render deploy hook.
 
+**Website frontend: `src/rate_visualizer/frontend/`** (imports only `rate_visualizer.backend`)
+- `app.py`: startup (loads the data in the background), `/healthz`, the page (sticky header, nav, snapshot selector,
+  dark mode) and the `site` command.
+- `state.py`: each visitor's filters, pinned benchmark entities, debounced refresh, drill-down and navigation.
+- `filterbar.py`: the global filter bar (type-to-search multi-selects, search, toggles, counting unit).
+- `theme.py`: teal accent, Inter font, light/dark CSS, number formatting.
+- `sections/`: `summary.py` (Code Summary + histograms, Benchmarks), `tables.py` (Rate Explorer, Percentage Rates),
+  `map_view.py` (Map), `composition.py` (Rate Type Composition), `profiles.py` (Provider and Billing Entity
+  profiles), `quality.py` (Data Quality).
+
 **Website backend: `src/rate_visualizer/backend/`** (the only package the frontend may import; see
 [docs/backend_api.md](docs/backend_api.md))
 - `schema.py`: shared contract: table names, provider-type and ghost-rule SQL, labels for codes and places of service.
@@ -113,6 +125,7 @@ per-worker share should leave headroom.
   and detection of a changed file.
 - `test_site.py`: build-site, every backend method and filter (checked against direct SQL), CSV export, source
   tracing, publish to a local folder, download verification, month retention, settings.
+- `test_frontend.py`: front/back boundary rules, and the real `site` command serving the page and `/healthz`.
 - `test_build.py`: steps 3b and 4. Profile and build on the fixtures (expected counts), dedup across files and
   networks, and the storage limit.
 - `fixtures/2026-08-17_…_Blue-Essentials-295430_in-network-rates.json.gz`: a real 1.6 MB BCBSTX file that contains

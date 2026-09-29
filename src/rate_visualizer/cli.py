@@ -234,7 +234,12 @@ def cmd_check_backend(cfg, args):
     print(f"{len(calls)} calls; slower than {args.slow}s: {slow or 'none'}")
 
 
-COMMANDS = {"index": cmd_index, "extract": cmd_extract, "profile": cmd_profile, "build-db": cmd_build_db,
+def cmd_site(cfg, args):
+    from .frontend.app import main as run_site
+    run_site(host=args.host, port=args.port)
+
+
+COMMANDS = {"site": cmd_site, "index": cmd_index, "extract": cmd_extract, "profile": cmd_profile, "build-db": cmd_build_db,
             "nppes": cmd_nppes, "trace": cmd_trace, "build-site": cmd_build_site, "publish-site": cmd_publish_site,
             "check-backend": cmd_check_backend}
 
@@ -255,6 +260,8 @@ def main(argv=None):
     t.add_argument("--file-id", help="trace raw paths in this file; with --npi, only rows from this file")
     t.add_argument("--path", action="append", help="JSON path, e.g. in_network[3].negotiated_rates[0]; repeatable")
     t.add_argument("--local", help="read a local copy instead of the file's URL")
+    parsers["site"].add_argument("--host", default="127.0.0.1")
+    parsers["site"].add_argument("--port", default=int(os.environ.get("PORT", 8080)), type=int)
     parsers["build-site"].add_argument("--force", action="store_true", help="build even if sanity checks fail")
     ps = parsers["publish-site"]
     ps.add_argument("--dry-run", action="store_true", help="show what would be uploaded; touch nothing")

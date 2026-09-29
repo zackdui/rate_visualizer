@@ -258,3 +258,9 @@ site stays public with no custom domain for now; a password and a domain can be 
 | 2026-09-29 | Ghost-rate rule by code group (psychotherapy vs add-on vs E/M) | CMS billing rules: add-ons and E/M need a prescriber | §8.9 |
 | 2026-09-29 | Thriveworks location TIN 47-1744442 tagged Thriveworks (`affiliated_location`) | Public DBA "Thriveworks North Central Austin"; own TIN and contract | `entity_matching.md` §4 |
 | 2026-09-29 | Hosting: NiceGUI on Render Standard, data in Cloudflare R2; public, no custom domain yet | Simplest setup at ~$25/month | `rates_tool_hosting_plan.md` |
+| 2026-09-29 | Rate Explorer grouping is server-side: "Summarize / group by" (code, TIN×code, NPI×code, network×code, provider type×code, setting×code, tag×code) computed over every matching row | ~1.5 M rows can't go to a browser; server-side keeps totals complete | §7, §8.3 |
+| 2026-09-29 | Percentage Rates: `billed_charge` / `estimated_dollars` stay empty placeholders in v1 | No billed-charge data yet | §8.4 |
+| 2026-09-29 | Look: teal accent (#0F766E), Inter, light/dark toggle | | §5 |
+| 2026-09-29 | Benchmarks table starts with the pinned entities (default Headway, Talkiatry); a switch shows all tagged entities | All 19 entities × 9 codes × distinct rates = 7,755 lines, too many to read or load at once | §8.2 |
+| 2026-09-29 | Filter bar starts collapsed (one-line summary; click to open) | Expanded, the sticky header covered ~300 px of the screen | §5 |
+| 2026-09-29 | Map outlines ZIPs with the pinned entities by default (selector: pinned / any platform / any health system / none) | Headway is in most Texas ZIPs, so "has a platform" outlines nearly every marker | §8.5 |
