@@ -1,0 +1,27 @@
+[project]
+name = "rate-visualizer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "zackdui", email = "iduitz@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.5.6",
+    "ijson>=3.5.1",
+    "pyarrow>=25.0.1",
+    "requests>=2.34.2",
+]
+
+[project.scripts]
+rate-visualizer = "rate_visualizer:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

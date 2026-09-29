@@ -1,0 +1,23 @@
+# Blue Cross and Blue Shield of Texas (HCSC). Copy this file for other states / payers.
+state = "TX"
+
+# Table-of-contents (index) file. index_path wins if set; otherwise index_url is downloaded into mrf_data/.
+index_url = "https://app0004702110a5prdnc868.blob.core.windows.net/toc/2026-08-20_Blue-Cross-and-Blue-Shield-of-Texas_index.json"
+index_path = "mrf_data/2026-08-20_Blue-Cross-and-Blue-Shield-of-Texas_index.json"
+
+# A file is "in state" when its file name contains this string.
+in_state_filename_marker = "Blue-Cross-and-Blue-Shield-of-Texas_"
+
+# Only these billing codes (of this billing_code_type) are extracted.
+codes = ["99205", "99214", "99215", "90833", "90836", "90838", "90832", "90834", "90837"]
+code_type = "CPT"
+
+# "in_state" = only files matching the marker; "all" = every in-network file in the index.
+scope = "in_state"
+
+data_dir = "data"
+retries = 3
+
+# Safety limits. A file that would go over either limit is stopped and its partial output deleted.
+max_memory_gb = 13    # RAM for all extract workers together; each of N workers may use max_memory_gb / N
+max_storage_gb = 13   # everything stored under data_dir (outputs + temporary files)
